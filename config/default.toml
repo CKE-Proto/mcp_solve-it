@@ -1,0 +1,87 @@
+[server]
+name = "solveit-mcp"
+version = "0.1.0"
+transport = "stdio"
+log_level = "INFO"
+
+# -- MCP Server Security Configuration -------------------------------
+# See README.md for a further description of the options in this section.
+
+# Baseline security level. 
+# Options: strict, moderate, permissive
+[security]
+profile = "moderate"
+
+# Overrides for baseline security level defaults.
+[security.rate_limits]
+enabled = true
+global_rpm = 120
+per_tool_rpm = 60
+burst_size = 10
+
+[security.io_limits]
+max_request_size = 5000000
+max_response_size = 10000000
+
+[security.input_validation]
+enabled = true
+max_string_length = 10000
+max_array_length = 100
+max_object_depth = 10
+
+[security.input_sanitization]
+enabled = true
+# Options for level --
+# strict: strips control chars, path traversal sequences, shell metacharacters, and null bytes
+# moderate: strips control chars, null bytes, and path traversal sequences
+# permissive: strips null bytes only
+level = "moderate"
+
+[security.auth]
+# Disabled by default as HTTP transport not yet implemented.
+enabled = false
+provider = "none"
+
+# -- Other general MCP server settings -------------------------------
+[extensions]
+auto_discover = true
+init_module = "mcp_chassis.extensions.solveit_init"
+
+[diagnostics]
+health_check_enabled = true
+include_config_summary = false
+
+# -- SOLVE-IT MCP Server Configuration -------------------------------
+[app]
+# Path to the SOLVE-IT repository root (absolute or relative to CWD)
+solveit_data_path = "<full path to your>/solve-it-main"
+
+# Objective mapping file (must exist in the SOLVE-IT data/ directory).
+# Default: "solve-it.json" (the standard SOLVE-IT categorization).
+# Custom mapping files can be placed in the data/ directory to provide
+# alternative categorizations of techniques into objectives.
+objective_mapping = "solve-it.json"
+
+# Whether to load SOLVE-IT-X extension data
+enable_extensions = true
+
+# This value is an artifact of how the MCP server chassis loads shared elements
+# that must be present for tools to function. In this case, it is required to load
+# the SOLVE-IT library so that it is available for tool calls.
+# - If true, the server exits immediately when the knowledge base fails to load.
+# - If false, the server starts in degraded mode with only solveit_status available.
+init_required = true
+
+# Enable full-detail listing tools (large payloads, disabled by default).
+# WARNING: These tools return the entire dataset for a given type and may
+# consume significant LLM context. You may also need to increase
+# [security.io_limits] max_response_size when enabling this.
+enable_full_detail_tools = false
+
+[app.search]
+# Each flag controls whether the corresponding parameter is exposed
+# in the solveit_search tool's schema. When disabled, the default
+# value is used: item_types=all, substring_match=false, search_logic="AND"
+enable_item_types_filter = true
+enable_substring_match = true
+enable_search_logic = true
