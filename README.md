@@ -2,31 +2,74 @@
 
 **Summary**: This project is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that wraps the [SOLVE-IT](https://github.com/SOLVE-IT-DF/solve-it) digital forensics knowledge base and its built-in library in order to provision LLMs with programmatic access to SOLVE-IT content.
 
-**SOLVE-IT**: provides a structured taxonomy of digital forensic techniques, the weaknesses that affect evidence reliability, and the mitigations that address those weaknesses. 
-
-**This Server**:
-- Exposes 21 tools for querying, navigating, and searching that knowledge base.
-- Built on a generic MCP server chassis that provides security middleware, configuration management, and extension auto-discovery of MCP tools.
+SOLVEI-IT provides a structured taxonomy of digital forensic techniques, the weaknesses that affect evidence reliability, and the mitigations that address those weaknesses. This server exposes tools for querying, navigating, and searching that knowledge base. 
 
 ## Quick Start
 
+### 1. Install dependencies
+
+**Option 1:**
+
 ```bash
-# Install dependencies (required on any new machine)
+pip install "mcp>=1.6.0,<2.0" pydantic pybtex
+```
+
+**Option 2:**
+ From within the root directory of this folder.
+```bash
 pip install -e ".[dev]"
+```
 
-# Update solveit_data_path in config/default.toml to point to your SOLVE-IT repository
-# Default: ../solve-it/solve-it-main (relative to this directory)
+### 2. Download this repo.
 
-# Run the server
+### 3. Download the main SOLVE-IT repo. 
+
+**Ref**: https://github.com/SOLVE-IT-DF/solve-it
+
+### 4. Configure config/default.toml 
+
+The default.toml file from this repository must point to your downloaded instance of the main SOLVE-IT repository. 
+
+**Example:**
+```
+solveit_data_path = "<full path to your>/solve-it-main"
+```
+
+### 5. Run the MCP server
+
+**Note**: You will not need to run the server manually if your MCP client runs the server when connecting to it, such as with the example in step 6 below.
+
+**Example 1:**
+```
+python3 run.py --config config/default.toml
+```
+
+**Example 2:**
+```
 python -m mcp_chassis
 ```
 
-If you prefer not to install the package, you can use the included launcher instead. Dependencies are still required:
+### 6. Configure your MCP client
 
-```bash
-pip install "mcp>=1.2.0,<2.0" pydantic pybtex
-python3 run.py --config config/default.toml
+Configure your MCP client to connect to the MCP server. In some cases (e.g. Claude Desktop), the client will also start the MCP server.
+
+**Example Claude Desktop Config:**
+
+**Example File:** `claude_desktop_config.json` \
+**Example Path (macOS)**: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+**Example Config**:
+```json
+{
+  "mcpServers": {
+    "solveit": {
+      "command": "python3",
+      "args": ["/path/to/mcp_server/run.py", "--config", "/path/to/mcp_server/config/default.toml"]
+    }
+  }
+}
 ```
+
 
 ## Available MCP Tools
 
@@ -88,7 +131,9 @@ python3 run.py --config config/default.toml
 |---|---|
 | `solveit_status` | Report data load status, item counts (including citations), and active configuration |
 
-### Full-Detail Listings (3 tools — disabled by default)
+### Full-Detail Listings
+
+**Note:** These tools are disabled by default due to the large volume of data they return. They can be enabled in **config/default.toml**. 
 
 | Tool | Description |
 |---|---|
@@ -111,7 +156,7 @@ The `[app]` section in `config/default.toml` controls SOLVE-IT-specific settings
 ```toml
 [app]
 # Path to the SOLVE-IT repository root (absolute or relative to CWD).
-solveit_data_path = "../solve-it/solve-it-main"
+solveit_data_path = "/<path>/<to>/<your>/solve-it-main"
 
 # Objective mapping file (must exist in the SOLVE-IT data/ directory).
 # Default: "solve-it.json" (the standard SOLVE-IT categorization).
@@ -173,7 +218,9 @@ Security behavior is inherited from the MCP server chassis on which this MCP ser
 I/O limits → Auth → Rate limit → Sanitize → Validate
 ```
 
-All inputs are sanitized before they reach tool handlers. The default security profile is `moderate`:
+Through this pipeline, sanitization attempts can be applied to inputs before they reach tool handlers. The default security profile is `moderate`. 
+
+**IMPORTANT**: These protections are a basic attempt to provide some security by default. If you decide to use this server in a production setting, we recommend you still perform security testing and modify the code of this project to implement security mitigations as appropriate for your threat environment and risk tolerance.
 
 | Profile | Rate Limit | I/O Limits | Sanitization | Error Detail |
 |---|---|---|---|---|
@@ -181,7 +228,7 @@ All inputs are sanitized before they reach tool handlers. The default security p
 | `moderate` | 120 rpm global, 60 rpm/tool | 5 MB req, 20 MB resp | Path traversal + control chars | Detailed |
 | `permissive` | Disabled | 50 MB req/resp | Null bytes only | Detailed |
 
-The active profile is set via `[security] profile` in `config/default.toml` and can be overridden with the `MCP_SECURITY_PROFILE` environment variable.
+The active profile is set via `[security] profile` in `config/default.toml`, where the individual settings can be used to override elements of the specified profile. Furthermore, the profile set in default.toml can be overridden with the `MCP_SECURITY_PROFILE` environment variable.
 
 ## Testing
 
