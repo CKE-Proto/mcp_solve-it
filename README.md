@@ -2,7 +2,7 @@
 
 **Summary**: This project is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that wraps the [SOLVE-IT](https://github.com/SOLVE-IT-DF/solve-it) digital forensics knowledge base and its built-in library in order to provision LLMs with programmatic access to SOLVE-IT content.
 
-SOLVEI-IT provides a structured taxonomy of digital forensic techniques, the weaknesses that affect evidence reliability, and the mitigations that address those weaknesses. This server exposes tools for querying, navigating, and searching that knowledge base. 
+SOLVE-IT provides a structured taxonomy of digital forensic techniques, the weaknesses that affect evidence reliability, and the mitigations that address those weaknesses. This server exposes tools for querying, navigating, and searching that knowledge base. 
 
 ## Quick Start
 
