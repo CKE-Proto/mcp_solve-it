@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from mcp_chassis.extensions.batch import register_simple_tools
@@ -204,6 +205,46 @@ def _register_relationship_tools(server: ChassisServer, kb: Any) -> None:
 
 
 _VALID_SEARCH_LOGIC = {"AND", "OR"}
+_CORE_SEARCH_TYPES = {"techniques", "weaknesses", "mitigations"}
+
+
+def _search_publications(
+    citations: dict[str, dict[str, Any]],
+    keywords: str,
+    substring_match: bool,
+    search_logic: str,
+) -> list[dict[str, Any]]:
+    """Search citation authors, titles, and rendered reference text."""
+    terms = [
+        phrase or word
+        for phrase, word in re.findall(r'"([^"]+)"|(\S+)', keywords)
+    ]
+    if not terms:
+        return []
+
+    def term_matches(text: str, term: str) -> bool:
+        if substring_match or " " in term:
+            return term.casefold() in text
+        return re.search(rf"\b{re.escape(term.casefold())}\b", text) is not None
+
+    matches = []
+    require_all = search_logic == "AND"
+    for citation_id, citation in citations.items():
+        text = " ".join(
+            str(value) for value in citation.values() if value is not None
+        ).casefold()
+        term_results = [term_matches(text, term) for term in terms]
+        if (all(term_results) if require_all else any(term_results)):
+            matches.append({
+                "id": citation_id,
+                **citation,
+                "_score": sum(term_results),
+            })
+
+    matches.sort(key=lambda item: (-item["_score"], item["id"]))
+    for match in matches:
+        match.pop("_score")
+    return matches
 
 
 def _register_search_tool(server: ChassisServer, kb: Any) -> None:
@@ -236,7 +277,12 @@ def _register_search_tool(server: ChassisServer, kb: Any) -> None:
             "type": "array",
             "items": {
                 "type": "string",
-                "enum": ["techniques", "weaknesses", "mitigations"],
+                "enum": [
+                    "techniques",
+                    "weaknesses",
+                    "mitigations",
+                    "publications",
+                ],
             },
             "description": (
                 "Filter results to specific types. "
@@ -277,19 +323,38 @@ def _register_search_tool(server: ChassisServer, kb: Any) -> None:
                 "error": f"Invalid search_logic '{search_logic}'. Must be AND or OR.",
             })
 
-        result = kb.search(
-            keywords=keywords,
-            item_types=item_types,
-            substring_match=substring_match,
-            search_logic=search_logic,
+        core_types = (
+            [item_type for item_type in item_types if item_type in _CORE_SEARCH_TYPES]
+            if item_types is not None
+            else None
         )
+        if item_types is None or core_types:
+            result = kb.search(
+                keywords=keywords,
+                item_types=core_types,
+                substring_match=substring_match,
+                search_logic=search_logic,
+            )
+        else:
+            result = {item_type: [] for item_type in sorted(_CORE_SEARCH_TYPES)}
+
+        if item_types is None or "publications" in item_types:
+            result["publications"] = _search_publications(
+                kb.citations,
+                keywords,
+                substring_match,
+                search_logic,
+            )
+        else:
+            result["publications"] = []
         return json.dumps(result)
 
     server.register_tool(
         name="solveit_search",
         description=(
             "Search the SOLVE-IT knowledge base by keywords. Returns matching "
-            "techniques, weaknesses, and mitigations sorted by relevance."
+            "techniques, weaknesses, mitigations, and publication citations "
+            "sorted by relevance."
         ),
         input_schema={
             "type": "object",

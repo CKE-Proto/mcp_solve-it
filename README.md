@@ -112,7 +112,7 @@ Configure your MCP client to connect to the MCP server. In some cases (e.g. Clau
 
 | Tool | Description |
 |---|---|
-| `solveit_search` | Full-text search across techniques, weaknesses, and mitigations |
+| `solveit_search` | Full-text search across techniques, weaknesses, mitigations, and publication authors/titles |
 
 ### Extension Info (1 tool)
 
@@ -183,7 +183,8 @@ enable_full_detail_tools = false
 [app.search]
 # Each flag controls whether the corresponding parameter is exposed
 # in the solveit_search tool's schema. When disabled, the default
-# value is used: item_types=all, substring_match=false, search_logic="AND"
+# value is used: item_types=all (including publications),
+# substring_match=false, search_logic="AND"
 enable_item_types_filter = true
 enable_substring_match = true
 enable_search_logic = true
@@ -199,7 +200,7 @@ enable_search_logic = true
 
 **`enable_full_detail_tools`** — Controls whether the three full-detail listing tools are registered. See the section below before enabling.
 
-**Search parameter flags** — The three `[app.search]` flags each control whether the corresponding parameter appears in the `solveit_search` tool schema. When a flag is `false`, the parameter is hidden and its default value is applied silently: `item_types` defaults to all types, `substring_match` defaults to `false` (word-boundary matching), and `search_logic` defaults to `"AND"`.
+**Search parameter flags** — The three `[app.search]` flags each control whether the corresponding parameter appears in the `solveit_search` tool schema. When a flag is `false`, the parameter is hidden and its default value is applied silently: `item_types` defaults to all types (techniques, weaknesses, mitigations, and publications), `substring_match` defaults to `false` (word-boundary matching), and `search_logic` defaults to `"AND"`.
 
 ## Enabling Full-Detail Tools
 
