@@ -301,6 +301,103 @@ class TestSearchTool:
         result = json.loads(await handler({"keywords": "test", "search_logic": "INVALID"}, _make_context()))
         assert "error" in result
 
+    @pytest.mark.asyncio
+    async def test_search_publication_authors_and_titles(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import register
+        kb = MagicMock()
+        kb.citations = {
+            "DFCite-0001": {
+                "bibtex": (
+                    "@article{example, author={Ada Lovelace}, "
+                    "title={Forensic Timelines}}"
+                ),
+                "plaintext": "Ada Lovelace. Forensic Timelines.",
+            },
+            "DFCite-0002": {
+                "bibtex": "@article{other, author={Grace Hopper}, title={Compilers}}",
+                "plaintext": "Grace Hopper. Compilers.",
+            },
+        }
+        kb.search.return_value = {
+            "techniques": [],
+            "weaknesses": [],
+            "mitigations": [],
+        }
+        server = _make_server(kb=kb)
+        register(server)
+        handler = server._registered_tools["solveit_search"]["handler"]
+
+        by_author = json.loads(
+            await handler(
+                {"keywords": '"Ada Lovelace"', "item_types": ["publications"]},
+                _make_context(),
+            )
+        )
+        by_title = json.loads(
+            await handler(
+                {"keywords": "forensic timelines", "item_types": ["publications"]},
+                _make_context(),
+            )
+        )
+
+        assert [item["id"] for item in by_author["publications"]] == ["DFCite-0001"]
+        assert [item["id"] for item in by_title["publications"]] == ["DFCite-0001"]
+        kb.search.assert_not_called()
+
+    def test_search_schema_includes_publications_item_type(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import register
+        kb = MagicMock()
+        server = _make_server(kb=kb)
+        register(server)
+
+        item_types = server._registered_tools["solveit_search"]["input_schema"][
+            "properties"
+        ]["item_types"]["items"]["enum"]
+
+        assert "publications" in item_types
+
+    @pytest.mark.asyncio
+    async def test_search_publications_honors_or_and_substring_options(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import register
+        kb = MagicMock()
+        kb.citations = {
+            "DFCite-0001": {
+                "plaintext": "Ada Lovelace. Forensic Timelines.",
+                "bibtex": None,
+            },
+            "DFCite-0002": {
+                "plaintext": "Grace Hopper. Compiler design.",
+            },
+        }
+        server = _make_server(kb=kb)
+        register(server)
+        handler = server._registered_tools["solveit_search"]["handler"]
+
+        result = json.loads(
+            await handler(
+                {
+                    "keywords": "Lovelace compile",
+                    "item_types": ["publications"],
+                    "search_logic": "OR",
+                    "substring_match": True,
+                },
+                _make_context(),
+            )
+        )
+
+        assert [item["id"] for item in result["publications"]] == [
+            "DFCite-0001",
+            "DFCite-0002",
+        ]
+
+        no_result = json.loads(
+            await handler(
+                {"keywords": "none", "item_types": ["publications"]},
+                _make_context(),
+            )
+        )
+        assert no_result["publications"] == []
+
 
 class TestFullDetailTools:
     def test_full_detail_tools_disabled_by_default(self) -> None:
