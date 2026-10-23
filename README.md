@@ -112,7 +112,7 @@ Configure your MCP client to connect to the MCP server. In some cases (e.g. Clau
 
 | Tool | Description |
 |---|---|
-| `solveit_search` | Full-text search across techniques, weaknesses, and mitigations |
+| `solveit_search` | Full-text search across techniques, weaknesses, mitigations, and citations (title, author and other citation text) |
 
 ### Extension Info (1 tool)
 
@@ -126,6 +126,8 @@ Configure your MCP client to connect to the MCP server. In some cases (e.g. Clau
 |---|---|
 | `solveit_get_citation` | Retrieve a citation by its DFCite ID |
 | `solveit_list_citations` | List all citation IDs in the knowledge base |
+
+To find a citation by title or author, use `solveit_search` with `item_types: ["citations"]`.
 
 ### Status (1 tool)
 

@@ -245,6 +245,33 @@ class TestSearchTool:
         assert "mitigations" in result
 
     @pytest.mark.asyncio
+    async def test_search_finds_citation_by_title(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import register
+        kb = _load_kb()
+        server = _make_server(kb=kb)
+        register(server)
+        handler = server._registered_tools["solveit_search"]["handler"]
+        result = json.loads(await handler(
+            {"keywords": '"Android Notifications" Dragonas', "item_types": ["citations"]},
+            _make_context(),
+        ))
+        assert "DFCite-1150" in {c["id"] for c in result["citations"]}
+        assert result["techniques"] == []
+
+    @pytest.mark.asyncio
+    async def test_search_without_citation_type_omits_citations(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import register
+        kb = _load_kb()
+        server = _make_server(kb=kb)
+        register(server)
+        handler = server._registered_tools["solveit_search"]["handler"]
+        result = json.loads(await handler(
+            {"keywords": "disk image", "item_types": ["techniques"]}, _make_context(),
+        ))
+        assert "citations" not in result
+        assert result["techniques"]
+
+    @pytest.mark.asyncio
     async def test_search_empty_results(self) -> None:
         from mcp_chassis.extensions.tools.solveit_tools import register
         kb = _load_kb()
@@ -255,6 +282,7 @@ class TestSearchTool:
         assert result["techniques"] == []
         assert result["weaknesses"] == []
         assert result["mitigations"] == []
+        assert result["citations"] == []
 
     def test_search_schema_includes_all_params_by_default(self) -> None:
         from mcp_chassis.extensions.tools.solveit_tools import register
@@ -470,3 +498,51 @@ class TestAllToolsRegistered:
         server = _make_server(kb=None, kb_error="Test failure")
         register(server)
         assert list(server._registered_tools.keys()) == ["solveit_status"]
+
+
+class TestSearchCitations:
+    _CITATIONS = {
+        "DFCite-1": {
+            "bibtex": "@article{smith2020, title={Windows Prefetch Analysis}, "
+                      "author={Smith, Jane}, journal={Forensic Science}, year={2020}}",
+            "plaintext": None,
+        },
+        "DFCite-2": {
+            "bibtex": None,
+            "plaintext": "Jones, A. (2021) Prefetch timelines in practice. DFRWS.",
+        },
+    }
+
+    def _search(self, keywords: str, **kwargs: Any) -> list[str]:
+        from mcp_chassis.extensions.tools.solveit_tools import search_citations
+        return [c["id"] for c in search_citations(self._CITATIONS, keywords, **kwargs)]
+
+    def test_matches_title_in_bibtex_and_plaintext(self) -> None:
+        assert self._search("prefetch") == ["DFCite-1", "DFCite-2"]
+
+    def test_matches_author(self) -> None:
+        assert self._search("smith") == ["DFCite-1"]
+
+    def test_and_requires_all_terms(self) -> None:
+        assert self._search("prefetch jones") == ["DFCite-2"]
+
+    def test_or_ranks_more_matches_first(self) -> None:
+        assert self._search("prefetch jones", search_logic="OR") == ["DFCite-2", "DFCite-1"]
+
+    def test_phrase_match(self) -> None:
+        assert self._search('"prefetch timelines"') == ["DFCite-2"]
+
+    def test_bibtex_field_names_not_searched(self) -> None:
+        assert self._search("journal") == []
+
+    def test_word_boundary_unless_substring(self) -> None:
+        assert self._search("prefe") == []
+        assert self._search("prefe", substring_match=True) == ["DFCite-1", "DFCite-2"]
+
+    def test_result_carries_citation_content(self) -> None:
+        from mcp_chassis.extensions.tools.solveit_tools import search_citations
+        result = search_citations(self._CITATIONS, "smith")
+        assert result == [{**self._CITATIONS["DFCite-1"], "id": "DFCite-1"}]
+
+    def test_stop_words_only_returns_nothing(self) -> None:
+        assert self._search("the and") == []

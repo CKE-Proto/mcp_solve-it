@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from mcp_chassis.extensions.batch import register_simple_tools
@@ -205,6 +206,63 @@ def _register_relationship_tools(server: ChassisServer, kb: Any) -> None:
 
 _VALID_SEARCH_LOGIC = {"AND", "OR"}
 
+# Same query rules as KnowledgeBase.search: quoted phrases, then words of
+# three or more characters that are not stop words.
+_PHRASE_RE = re.compile(r'"([^"]+)"')
+_WORD_RE = re.compile(r"\b\w+\b")
+_STOP_WORDS = {"and", "or", "not", "the", "a", "an", "is", "are", "was", "were"}
+# BibTeX scaffolding (entry type, cite key, field names) is left out of the
+# searched text so a query for "journal" or "title" does not match every entry.
+_BIBTEX_HEAD_RE = re.compile(r"^\s*@\w+\s*\{[^,]*,")
+_BIBTEX_FIELD_RE = re.compile(r"\b\w+\s*=")
+
+
+def _citation_text(citation: dict[str, Any]) -> str:
+    """Return the lower-cased searchable text of a citation."""
+    bibtex = citation.get("bibtex") or ""
+    bibtex = _BIBTEX_FIELD_RE.sub(" ", _BIBTEX_HEAD_RE.sub(" ", bibtex))
+    return f"{citation.get('plaintext') or ''} {bibtex}".lower()
+
+
+def search_citations(
+    citations: dict[str, dict[str, Any]],
+    keywords: str,
+    substring_match: bool = False,
+    search_logic: str = "AND",
+) -> list[dict[str, Any]]:
+    """Search citation plaintext and BibTeX (titles, authors, venues).
+
+    Args:
+        citations: Mapping of DFCite ID to {"bibtex": ..., "plaintext": ...}.
+        keywords: Search terms. Quoted text is matched as a phrase.
+        substring_match: If true, allow partial word matches.
+        search_logic: "AND" (all terms must match) or "OR" (any term).
+
+    Returns:
+        Matching citations with their ID, most terms matched first.
+    """
+    phrases = [p.lower().strip() for p in _PHRASE_RE.findall(keywords)]
+    words = _WORD_RE.findall(_PHRASE_RE.sub("", keywords).lower())
+    terms = [w for w in words if len(w) > 2 and w not in _STOP_WORDS]
+    needles = terms + [p for p in phrases if p]
+    if not needles:
+        return []
+
+    def _found(needle: str, text: str) -> bool:
+        if substring_match:
+            return needle in text
+        return re.search(rf"\b{re.escape(needle)}\b", text) is not None
+
+    scored = []
+    for cite_id, citation in citations.items():
+        text = _citation_text(citation)
+        hits = sum(1 for n in needles if _found(n, text))
+        if hits == 0 or (search_logic == "AND" and hits < len(needles)):
+            continue
+        scored.append((hits, cite_id, citation))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [{**citation, "id": cite_id} for _, cite_id, citation in scored]
+
 
 def _register_search_tool(server: ChassisServer, kb: Any) -> None:
     """Register solveit_search with schema based on [app.search] config.
@@ -236,11 +294,12 @@ def _register_search_tool(server: ChassisServer, kb: Any) -> None:
             "type": "array",
             "items": {
                 "type": "string",
-                "enum": ["techniques", "weaknesses", "mitigations"],
+                "enum": ["techniques", "weaknesses", "mitigations", "citations"],
             },
             "description": (
-                "Filter results to specific types. "
-                "Default: all types are searched."
+                "Filter results to specific types. Citations are matched on "
+                "their plaintext and BibTeX, so titles and authors are "
+                "searchable. Default: all types are searched."
             ),
         }
 
@@ -277,19 +336,27 @@ def _register_search_tool(server: ChassisServer, kb: Any) -> None:
                 "error": f"Invalid search_logic '{search_logic}'. Must be AND or OR.",
             })
 
+        kb_types = None
+        if item_types is not None:
+            kb_types = [t for t in item_types if t != "citations"]
         result = kb.search(
             keywords=keywords,
-            item_types=item_types,
+            item_types=kb_types,
             substring_match=substring_match,
             search_logic=search_logic,
         )
+        if item_types is None or "citations" in item_types:
+            result["citations"] = search_citations(
+                kb.citations, keywords, substring_match, search_logic,
+            )
         return json.dumps(result)
 
     server.register_tool(
         name="solveit_search",
         description=(
             "Search the SOLVE-IT knowledge base by keywords. Returns matching "
-            "techniques, weaknesses, and mitigations sorted by relevance."
+            "techniques, weaknesses, mitigations, and citations (by title, "
+            "author or other citation text) sorted by relevance."
         ),
         input_schema={
             "type": "object",
