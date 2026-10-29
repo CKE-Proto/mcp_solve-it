@@ -32,6 +32,55 @@ class SearchConfig:
 
 
 @dataclass
+class BadgesConfig:
+    """Typed configuration for ``[app.badges]``.
+
+    Attributes:
+        enabled: Whether to register the badge tools.
+        output_dir: Directory ``solveit_save_badge`` writes into. Empty means
+            ``<tempdir>/solveit-badges``.
+        enable_save: Whether to register ``solveit_save_badge``.
+        max_scale: Largest PNG scale offered (2, 4 or 8).
+    """
+
+    enabled: bool = True
+    output_dir: str = ""
+    enable_save: bool = True
+    max_scale: int = 8
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any]) -> BadgesConfig:
+        """Build a validated config from the raw ``[app.badges]`` dict.
+
+        Args:
+            raw: The raw ``[app.badges]`` config dict from TOML.
+
+        Returns:
+            A validated ``BadgesConfig`` instance.
+        """
+        known_keys = {f.name for f in fields(cls)}
+        for key in raw:
+            if key not in known_keys:
+                logger.warning(
+                    "Unrecognized [app.badges] config key: '%s'. Known keys: %s",
+                    key, ", ".join(sorted(known_keys)),
+                )
+        max_scale = raw.get("max_scale", cls.max_scale)
+        if isinstance(max_scale, bool) or max_scale not in (2, 4, 8):
+            logger.warning(
+                "Invalid [app.badges] max_scale %r; must be 2, 4 or 8. Using %d.",
+                max_scale, cls.max_scale,
+            )
+            max_scale = cls.max_scale
+        return cls(
+            enabled=bool(raw.get("enabled", cls.enabled)),
+            output_dir=str(raw.get("output_dir", cls.output_dir)),
+            enable_save=bool(raw.get("enable_save", cls.enable_save)),
+            max_scale=max_scale,
+        )
+
+
+@dataclass
 class SolveItAppConfig:
     """Typed configuration for the ``[app]`` TOML section.
 
@@ -46,6 +95,7 @@ class SolveItAppConfig:
         init_required: If True, exit on KB load failure instead of degrading.
         enable_full_detail_tools: Whether to register full-detail listing tools.
         search: Search parameter visibility flags.
+        badges: Slide badge tool settings.
     """
 
     solveit_data_path: str = "../solve-it/solve-it-main"
@@ -54,12 +104,14 @@ class SolveItAppConfig:
     init_required: bool = True
     enable_full_detail_tools: bool = False
     search: SearchConfig = field(default_factory=SearchConfig)
+    badges: BadgesConfig = field(default_factory=BadgesConfig)
 
     @classmethod
     def from_raw(cls, raw: dict[str, Any]) -> SolveItAppConfig:
         """Build a validated config from the raw ``[app]`` dict.
 
-        Extracts known keys, builds nested ``SearchConfig``, and warns
+        Extracts known keys, builds nested ``SearchConfig`` and
+        ``BadgesConfig``, and warns
         about any unrecognized top-level keys.
 
         Args:
@@ -93,19 +145,22 @@ class SolveItAppConfig:
             init_required=raw.get("init_required", cls.init_required),
             enable_full_detail_tools=raw.get("enable_full_detail_tools", cls.enable_full_detail_tools),
             search=search,
+            badges=BadgesConfig.from_raw(raw.get("badges", {})),
         )
 
 
 # ── Environment variable overrides ──────────────────────────────────────
 
 # Format: (env_var_name, config_key, type)
-# Env vars override TOML values when set.
+# Env vars override TOML values when set. A dotted key ("badges.output_dir")
+# sets a key in a nested section.
 _ENV_OVERRIDES: list[tuple[str, str, type]] = [
     ("MCP_APP_SOLVEIT_DATA_PATH", "solveit_data_path", str),
     ("MCP_APP_OBJECTIVE_MAPPING", "objective_mapping", str),
     ("MCP_APP_ENABLE_EXTENSIONS", "enable_extensions", bool),
     ("MCP_APP_INIT_REQUIRED", "init_required", bool),
     ("MCP_APP_ENABLE_FULL_DETAIL_TOOLS", "enable_full_detail_tools", bool),
+    ("MCP_APP_BADGES_OUTPUT_DIR", "badges.output_dir", str),
 ]
 
 
@@ -124,11 +179,19 @@ def _apply_env_overrides(app_config: dict[str, Any]) -> None:
         raw = os.environ.get(env_var)
         if raw is None:
             continue
+        target = app_config
+        *sections, key = config_key.split(".")
+        for section in sections:
+            nested = target.get(section)
+            if not isinstance(nested, dict):
+                nested = {}
+                target[section] = nested
+            target = nested
         if value_type is bool:
-            app_config[config_key] = raw.lower() in ("1", "true", "yes")
+            target[key] = raw.lower() in ("1", "true", "yes")
         else:
-            app_config[config_key] = raw
-        logger.info("Config override: %s=%r (from %s)", config_key, app_config[config_key], env_var)
+            target[key] = raw
+        logger.info("Config override: %s=%r (from %s)", config_key, target[key], env_var)
 
 
 # ── Init hook ───────────────────────────────────────────────────────────

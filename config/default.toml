@@ -85,3 +85,18 @@ enable_full_detail_tools = false
 enable_item_types_filter = true
 enable_substring_match = true
 enable_search_logic = true
+
+[app.badges]
+# Slide badge tools (solveit_get_badge, solveit_save_badge). PNG output needs
+# the optional "badges" extra: pip install 'mcp-chassis[badges]'.
+enabled = true
+# Directory solveit_save_badge writes into (created with mode 0700). Empty means
+# <system temp dir>/solveit-badges. Choose a directory your presentation tool
+# is allowed to read from.
+# Override with the MCP_APP_BADGES_OUTPUT_DIR environment variable.
+output_dir = ""
+# Register solveit_save_badge (writes files). Set false to offer only
+# solveit_get_badge.
+enable_save = true
+# Largest PNG scale offered (2, 4 or 8).
+max_scale = 8

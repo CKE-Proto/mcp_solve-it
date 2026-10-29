@@ -8,13 +8,16 @@ version = "0.1.0"
 description = "An extensible MCP server chassis with security middleware"
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.2.0,<2.0",
+    "mcp>=1.10.0,<2.0",
 ]
 
 [project.scripts]
 mcp-chassis = "mcp_chassis.__main__:main"
 
 [project.optional-dependencies]
+badges = [
+    "resvg_py>=0.5.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",

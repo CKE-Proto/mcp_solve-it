@@ -10,6 +10,7 @@ import json
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from mcp import types
@@ -30,6 +31,46 @@ logger = logging.getLogger(__name__)
 ToolHandler = Callable[[dict[str, Any], HandlerContext], Coroutine[Any, Any, Any]]
 ResourceHandler = Callable[[str, HandlerContext], Coroutine[Any, Any, str]]
 PromptHandler = Callable[[dict[str, Any], HandlerContext], Coroutine[Any, Any, Any]]
+
+
+@dataclass
+class ToolResult:
+    """Tool handler result made of ready-built MCP content blocks.
+
+    Handlers normally return a ``str`` or a JSON-serialisable value, which
+    the chassis wraps in one ``TextContent``. A handler that needs other
+    content types (for example ``ImageContent``) returns a ``ToolResult``
+    instead; its blocks are passed to the client unchanged, subject to the
+    response size limit.
+
+    Attributes:
+        content: MCP content blocks to return to the client.
+    """
+
+    content: list[types.ContentBlock] = field(default_factory=list)
+
+
+def _content_size_text(content: list[types.ContentBlock]) -> str:
+    """Return the payload of content blocks as one string for size checks.
+
+    Text blocks count their text, image and audio blocks their base64
+    data, and any other block its JSON form.
+
+    Args:
+        content: Content blocks from a ``ToolResult``.
+
+    Returns:
+        The concatenated payload text.
+    """
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, types.TextContent):
+            parts.append(block.text)
+        elif isinstance(block, types.ImageContent) or block.type == "audio":
+            parts.append(str(getattr(block, "data", "")))
+        else:
+            parts.append(block.model_dump_json())
+    return "".join(parts)
 
 
 class ChassisServer:
@@ -456,6 +497,15 @@ class ChassisServer:
         except Exception as exc:
             logger.error("Tool '%s' raised unhandled error: %s", tool_name, exc)
             return self._make_error_result(exc, handler_ctx.correlation_id)
+
+        # Content blocks from a ToolResult are passed through after a size check
+        if isinstance(result, ToolResult):
+            try:
+                self._middleware.check_response_size(_content_size_text(result.content))
+            except ChassisError as exc:
+                logger.error("Response size check failed for tool '%s': %s", tool_name, exc)
+                return self._make_error_result(exc)
+            return types.CallToolResult(content=list(result.content), isError=False)
 
         # Serialize and check response size
         try:

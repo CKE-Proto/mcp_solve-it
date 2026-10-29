@@ -127,6 +127,18 @@ Configure your MCP client to connect to the MCP server. In some cases (e.g. Clau
 | `solveit_get_citation` | Retrieve a citation by its DFCite ID |
 | `solveit_list_citations` | List all citation IDs in the knowledge base |
 
+### Slide Badges (3 tools)
+
+Badges match the ones the SOLVE-IT Explorer copies for presentation slides. PNG output needs the optional `badges` extra (`pip install -e ".[badges]"`, which installs `resvg_py`); SVG output works without it. See [docs/BADGES.md](docs/BADGES.md).
+
+| Tool | Description |
+|---|---|
+| `solveit_get_badge` | Return the badge for an objective, technique, weakness or mitigation as a PNG image (or SVG source), plus a JSON summary |
+| `solveit_get_badge_guidance` | Sizes and default slide positions for badges (optionally for a given slide size) |
+| `solveit_save_badge` | Save the badge into the configured output directory and return its absolute path (registered only when `enable_save = true`) |
+
+`solveit_get_badge` and `solveit_save_badge` take `item_id` (e.g. `DFO-1015` or `DFT-1001`; case and surrounding spaces are ignored), `size` (`auto`, `small` or `wide`; default `auto`), `scale` (2, 4 or 8 PNG pixels per slide point; default 4) and `format` (`png` or `svg`; default `png`). `solveit_save_badge` also takes an optional bare `filename` (default `<ID>.<format>`) and `overwrite` (default false: an existing file with different content is not replaced).
+
 ### Status (1 tool)
 
 | Tool | Description |
@@ -154,6 +166,7 @@ The `[app]` section in `config/default.toml` controls SOLVE-IT-specific settings
 | `MCP_APP_ENABLE_EXTENSIONS` | `enable_extensions` | bool (`true`/`false`/`1`/`0`/`yes`/`no`) |
 | `MCP_APP_INIT_REQUIRED` | `init_required` | bool |
 | `MCP_APP_ENABLE_FULL_DETAIL_TOOLS` | `enable_full_detail_tools` | bool |
+| `MCP_APP_BADGES_OUTPUT_DIR` | `badges.output_dir` | string |
 
 ```toml
 [app]
@@ -187,6 +200,12 @@ enable_full_detail_tools = false
 enable_item_types_filter = true
 enable_substring_match = true
 enable_search_logic = true
+
+[app.badges]
+enabled = true       # register the badge tools
+output_dir = ""      # where solveit_save_badge writes; empty -> <temp dir>/solveit-badges
+enable_save = true   # register solveit_save_badge
+max_scale = 8        # largest PNG scale offered (2, 4 or 8)
 ```
 
 **`solveit_data_path`** — Path to the cloned SOLVE-IT repository. Accepts an absolute path or a path relative to the working directory when the server is started.
@@ -198,6 +217,8 @@ enable_search_logic = true
 **`init_required`** — When `true` (the default), the server exits with a clear error if the knowledge base fails to load. When `false`, the server starts in degraded mode with only `solveit_status` available, which reports the load failure. Set to `false` during development if you need to test server behavior without valid KB data.
 
 **`enable_full_detail_tools`** — Controls whether the three full-detail listing tools are registered. See the section below before enabling.
+
+**Badge settings** — `[app.badges] output_dir` is the only place `solveit_save_badge` writes; clients cannot choose a directory. It is created with mode `0700` if missing, and the tool refuses a symlinked directory, a directory owned by another user, symlinked target files and file names outside `^[A-Za-z0-9._-]{1,64}$` (or starting with `.`). Pick a directory your presentation tool is allowed to read. Set `enable_save = false` to offer only `solveit_get_badge`.
 
 **Search parameter flags** — The three `[app.search]` flags each control whether the corresponding parameter appears in the `solveit_search` tool schema. When a flag is `false`, the parameter is hidden and its default value is applied silently: `item_types` defaults to all types, `substring_match` defaults to `false` (word-boundary matching), and `search_logic` defaults to `"AND"`.
 
@@ -240,6 +261,8 @@ python -m pytest tests/unit/         # Unit tests only
 python -m pytest tests/integration/  # Integration tests only
 ```
 
+Badge tests that need real SOLVE-IT data look for it in `SOLVEIT_TEST_DATA_PATH`, then `MCP_APP_SOLVEIT_DATA_PATH`, then `../solve-it/solve-it-main`, and skip if none is found. The badge differential test also needs `node` and the Explorer's `generate_html_from_kb.py` with the badge code (set `SOLVEIT_EXPLORER_SCRIPT` to its path if it is not found automatically).
+
 ## Project Structure
 
 ```
@@ -251,6 +274,11 @@ src/mcp_chassis/
     solveit_init.py                — Initializes the SOLVE-IT data loader on startup
     tools/
       solveit_tools.py             — All 21 SOLVE-IT tool registrations and handlers
+      badge_tools.py               — Slide badge tools (solveit_get_badge, solveit_save_badge)
+    badges/                        — Badge layout, SVG and PNG rendering (port of the SOLVE-IT Explorer)
+      fonts/                       — Bundled Liberation Sans Bold (SIL OFL)
+scripts/
+  gen_badge_widths.py              — Regenerates badges/widths.py from the bundled font
   middleware/
     pipeline.py                    — Security middleware pipeline
   security/                        — Rate limiting, sanitization, validation, profiles

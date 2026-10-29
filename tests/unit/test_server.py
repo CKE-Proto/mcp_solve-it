@@ -20,7 +20,7 @@ from mcp_chassis.config import (
     ValidationConfig,
 )
 from mcp_chassis.context import HandlerContext
-from mcp_chassis.server import ChassisServer
+from mcp_chassis.server import ChassisServer, ToolResult
 
 # Re-use the shared test config builder from conftest (imported via pytest's
 # conftest mechanism — the path must be relative to the tests root).
@@ -277,6 +277,85 @@ class TestNonSerializableHandlerReturn:
 
         server.register_tool("set_return", "d", {"type": "object"}, handler)
         result = await server._dispatch_tool("set_return", {})
+        assert result.isError
+
+
+class TestToolResultPassthrough:
+    """Tests for handlers returning ToolResult content blocks."""
+
+    @pytest.mark.asyncio
+    async def test_image_and_text_blocks_pass_through(self, server: ChassisServer) -> None:
+        from mcp import types
+
+        image = types.ImageContent(type="image", data="aGVsbG8=", mimeType="image/png")
+        note = types.TextContent(type="text", text="caption")
+
+        async def handler(args: dict, ctx: HandlerContext) -> ToolResult:
+            return ToolResult(content=[image, note])
+
+        server.register_tool("img", "d", {"type": "object"}, handler)
+        result = await server._dispatch_tool("img", {})
+        assert not result.isError
+        assert result.content == [image, note]
+
+    @pytest.mark.asyncio
+    async def test_size_limit_counts_base64_data(self) -> None:
+        from mcp import types
+
+        s = ChassisServer(make_test_config(io_response_limit=100))
+
+        async def handler(args: dict, ctx: HandlerContext) -> ToolResult:
+            return ToolResult(content=[
+                types.TextContent(type="text", text="x" * 50),
+                types.ImageContent(type="image", data="A" * 60, mimeType="image/png"),
+            ])
+
+        s.register_tool("big_img", "d", {"type": "object"}, handler)
+        result = await s._dispatch_tool("big_img", {})
+        assert result.isError
+        text = result.content[0].text  # type: ignore[union-attr]
+        assert "RESPONSE_TOO_LARGE" in text or "IO_LIMIT_EXCEEDED" in text
+
+    @pytest.mark.asyncio
+    async def test_size_limit_allows_payload_at_limit(self) -> None:
+        from mcp import types
+
+        s = ChassisServer(make_test_config(io_response_limit=100))
+
+        async def handler(args: dict, ctx: HandlerContext) -> ToolResult:
+            return ToolResult(content=[
+                types.TextContent(type="text", text="x" * 40),
+                types.ImageContent(type="image", data="A" * 60, mimeType="image/png"),
+            ])
+
+        s.register_tool("ok_img", "d", {"type": "object"}, handler)
+        result = await s._dispatch_tool("ok_img", {})
+        assert not result.isError
+
+    @pytest.mark.asyncio
+    async def test_non_serializable_object_still_errors(self, server: ChassisServer) -> None:
+        class Opaque:
+            pass
+
+        async def handler(args: dict, ctx: HandlerContext) -> Any:
+            return Opaque()
+
+        server.register_tool("opaque", "d", {"type": "object"}, handler)
+        result = await server._dispatch_tool("opaque", {})
+        assert result.isError
+        assert "HANDLER_ERROR" in result.content[0].text  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_list_of_content_without_wrapper_is_not_passed_through(
+        self, server: ChassisServer
+    ) -> None:
+        from mcp import types
+
+        async def handler(args: dict, ctx: HandlerContext) -> Any:
+            return [types.TextContent(type="text", text="raw")]
+
+        server.register_tool("raw_list", "d", {"type": "object"}, handler)
+        result = await server._dispatch_tool("raw_list", {})
         assert result.isError
 
 
